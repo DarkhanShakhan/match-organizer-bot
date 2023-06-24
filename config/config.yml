@@ -1,2 +1,3 @@
 app_env: dev
 telegram_token: secret
+postgres_dsn: "postgresql://bot_user:bot_password@localhost:5432/bot_dev?sslmode=disable"

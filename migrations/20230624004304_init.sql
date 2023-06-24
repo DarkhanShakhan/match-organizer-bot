@@ -4,8 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     "name" TEXT NOT NULL,
     "username" TEXT NOT NULL UNIQUE,
-    phone_number INT NOT NULL UNIQUE
-);
+    chat_id INT NOT NULL);
 -- +goose StatementEnd
 
 -- +goose StatementBegin
@@ -36,6 +35,7 @@ CREATE TABLE IF NOT EXISTS teams (
     id SERIAL PRIMARY KEY,
     "name" TEXT,
     match_id INT NOT NULL,
+    size INT NOT NULL,
     CONSTRAINT fk_match FOREIGN KEY(match_id) REFERENCES matches(id) ON DELETE CASCADE
 ); 
 -- +goose StatementEnd

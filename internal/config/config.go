@@ -12,6 +12,7 @@ const configFilePath = "config/config.yml"
 type Config struct {
 	AppEnv        string `yaml:"app_env" envconfig:"APP_ENV"`
 	TelegramToken string `yaml:"telegram_token" envconfig:"TELEGRAM_TOKEN"`
+	PostgresDSN   string `yaml:"postgres_dsn" envconfig:"POSTGRES_DSN"`
 }
 
 func New() *Config {
