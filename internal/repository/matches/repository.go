@@ -63,7 +63,7 @@ const (
 									ORDER BY m.start_at DESC;
 									`
 	setMatchConfirmedStmt   = `UPDATE team_members SET confirmed=$1 WHERE member_id=$2 AND team_id=$3;`
-	setMatchPaidStmt        = `UPDATE team_members SET paid=$1 WHERE member_id=$2;`
+	setMatchPaidStmt        = `UPDATE team_members SET paid=$1 WHERE member_id=$2 AND team_id=$3;`
 	deleteTeamMemberStmt    = `DELETE FROM team_members WHERE member_id = $2 AND team_id=$1;`
 	getMatchIDByTeamIDStmt  = `SELECT match_id as id FROM teams WHERE id=$1;`
 	getTeamIDByMatchAndUser = `SELECT t.id AS id
@@ -163,7 +163,7 @@ func (r *repository) SetMatchPaid(ctx context.Context, paid bool, memberID, matc
 	if err != nil {
 		return err
 	}
-	_, err = r.pool.Exec(ctx, setMatchPaidStmt, paid, teamID)
+	_, err = r.pool.Exec(ctx, setMatchPaidStmt, paid, memberID, teamID)
 	if err != nil {
 		return err
 	}

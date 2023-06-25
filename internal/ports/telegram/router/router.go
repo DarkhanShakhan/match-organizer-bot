@@ -48,6 +48,13 @@ func (r *router) HandleUpdate(update tgbotapi.Update) {
 		r.handleCallback(update.CallbackQuery)
 	case update.Message != nil:
 		r.handleMessage(update.Message)
+	default:
+		user := entity.User{
+			Name:     update.MyChatMember.From.FirstName,
+			Username: update.MyChatMember.From.UserName,
+			ChatID:   int(update.MyChatMember.From.ID),
+		}
+		r.service.CreateUser(context.Background(), &user)
 	}
 }
 
@@ -62,6 +69,12 @@ func (r *router) handleCallback(callback *tgbotapi.CallbackQuery) {
 		return
 	}
 	switch callbacks[0] {
+	case "send_report":
+		matchID, _ := strconv.Atoi(callbacks[1])
+		r.userCache.SetMatchID(callback.From.UserName, int64(matchID))
+		r.userCache.SetStatus(callback.From.UserName, users.StatusSendReport)
+		msg := tgbotapi.NewMessage(callback.From.ID, `Отправьте отчет о расходах или о матче`)
+		r.bot.Send(msg)
 	case "add_members":
 		msg := tgbotapi.NewMessage(callback.From.ID, "Добавить в команду:")
 		id, _ := strconv.Atoi(callbacks[1])
@@ -83,8 +96,8 @@ func (r *router) handleCallback(callback *tgbotapi.CallbackQuery) {
 		r.bot.Send(tgbotapi.NewMessage(callback.From.ID, "Вы отменили матч"))
 		for _, team := range match.Teams {
 			for _, member := range team.Members {
-				//TODO: return fees to paid members
 				r.bot.Send(tgbotapi.NewMessage(int64(member.ChatID), fmt.Sprintf("Матч #%d отменен", matchID)))
+				r.bot.Send(tgbotapi.NewMessage(int64(member.ChatID), fmt.Sprintf("Ваш взнос за матч  #%d был возращен", matchID)))
 			}
 		}
 
@@ -126,29 +139,28 @@ func (r *router) handleCallback(callback *tgbotapi.CallbackQuery) {
 		msg := tgbotapi.NewMessage(callback.From.ID,
 			fmt.Sprint(match),
 		)
-		rows := []tgbotapi.InlineKeyboardButton{}
+		rows := [][]tgbotapi.InlineKeyboardButton{}
 		if match.OrganizerUsername == callback.From.UserName {
-			rows = append(rows, tgbotapi.NewInlineKeyboardButtonData(
-				"Отменить матч",
-				fmt.Sprintf("cancel_match-%d", matchID)))
+			rows = append(rows, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("Отменить матч", fmt.Sprintf("cancel_match-%d", matchID)),
+				tgbotapi.NewInlineKeyboardButtonData("Отправить отчет", fmt.Sprintf("send_report-%d", matchID)),
+			})
 		}
-		rows = append(rows, tgbotapi.NewInlineKeyboardButtonData(
+		nextRows := []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData(
 			"Записаться на матч",
-			fmt.Sprintf("signup_match-%d", matchID)),
-		)
+			fmt.Sprintf("signup_match-%d", matchID))}
 		for _, team := range match.Teams {
 			for _, member := range team.Members {
 				if callback.From.UserName == member.Username {
-					rows = append(rows[:len(rows)-1],
+					nextRows = append(nextRows[:len(nextRows)-1],
 						tgbotapi.NewInlineKeyboardButtonData("Отменить участие", fmt.Sprintf("signout_match-%d", matchID)),
 					)
 					if !member.Confirmed {
-						rows = append(rows, tgbotapi.NewInlineKeyboardButtonData(
+						nextRows = append(nextRows, tgbotapi.NewInlineKeyboardButtonData(
 							"Подтвердить участие", fmt.Sprintf("confirm_match-%d", matchID),
 						))
 					}
 					if !member.Paid {
-						rows = append(rows, tgbotapi.NewInlineKeyboardButtonData(
+						nextRows = append(nextRows, tgbotapi.NewInlineKeyboardButtonData(
 							"Оплатить взнос", fmt.Sprintf("pay_match-%d", matchID),
 						))
 					}
@@ -158,16 +170,27 @@ func (r *router) handleCallback(callback *tgbotapi.CallbackQuery) {
 			}
 
 		}
-		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows)
+		rows = append(rows, nextRows)
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 		r.bot.Send(msg)
 	case "pay_match":
+		matchID, _ := strconv.Atoi(callbacks[1])
+		match, _ := r.service.GetMatchByMatchID(context.Background(), int64(matchID))
+		organizer, _ := r.service.GetUserByUsername(context.Background(), match.OrganizerUsername)
+		user, _ := r.service.GetUserByUsername(context.Background(), callback.From.UserName)
+		r.service.SetMatchPaid(context.Background(), true, user.ID, match.ID)
+		msg := tgbotapi.NewMessage(callback.From.ID, "Вы оплатили взнос")
+		msg.ReplyMarkup = matchMoreKeyboard(int64(matchID))
+		r.bot.Send(msg)
+		msg = tgbotapi.NewMessage(int64(organizer.ChatID), fmt.Sprintf("@%s оплатил взнос в матче %d", user.Username, matchID))
+		msg.ReplyMarkup = matchMoreKeyboard(match.ID)
+		r.bot.Send(msg)
 	case "confirm_match":
 		matchID, _ := strconv.Atoi(callbacks[1])
 		match, _ := r.service.GetMatchByMatchID(context.TODO(), int64(matchID))
 		organizer, _ := r.service.GetUserByUsername(context.Background(), match.OrganizerUsername)
 		user, _ := r.service.GetUserByUsername(context.Background(), callback.From.UserName)
 		r.service.SetMatchConfirmed(context.Background(), true, user.ID, int64(matchID))
-		//TODO: notify organizer
 		msg := tgbotapi.NewMessage(callback.From.ID, "Вы подтвердили участие в матче")
 		msg.ReplyMarkup = matchMoreKeyboard(int64(matchID))
 		r.bot.Send(msg)
@@ -202,8 +225,9 @@ func (r *router) handleCallback(callback *tgbotapi.CallbackQuery) {
 		r.service.SignUpToMatch(context.Background(), user.ID, int64(teamID))
 		msg := tgbotapi.NewMessage(callback.From.ID, "Вы записались на матч")
 		msg.ReplyMarkup = matchMoreKeyboard(match.ID)
-		msg = tgbotapi.NewMessage(int64(organizer.ChatID), fmt.Sprintf("@%s отменил участие в матче %d", user.Username, matchID))
-
+		r.bot.Send(msg)
+		msg = tgbotapi.NewMessage(int64(organizer.ChatID), fmt.Sprintf("@%s записался на матч %d", user.Username, matchID))
+		msg.ReplyMarkup = matchMoreKeyboard(match.ID)
 		r.bot.Send(msg)
 	}
 }
@@ -362,6 +386,26 @@ func (r *router) handleMessage(msg *tgbotapi.Message) {
 	switch userStatus {
 	case users.StatusAddTeamMembers:
 		r.addTeamMembers(msg)
+	case users.StatusSendReport:
+		r.sendReport(msg)
+	}
+}
+
+func (r *router) sendReport(msg *tgbotapi.Message) {
+	user, ok := r.userCache.GetUser(msg.From.UserName)
+	if !ok {
+		log.Println("user not found in cache")
+		return
+	}
+	match, _ := r.service.GetMatchByMatchID(context.Background(), user.MatchID)
+	for _, team := range match.Teams {
+		for _, member := range team.Members {
+			msgToSend := tgbotapi.NewMessage(int64(member.ChatID), fmt.Sprintf("Отчет по матчу #%d", user.MatchID))
+			msgToSend.ReplyMarkup = matchMoreKeyboard(match.ID)
+			r.bot.Send(msgToSend)
+			photoToSend := tgbotapi.NewPhoto(int64(member.ChatID), tgbotapi.FileID(msg.Photo[0].FileID))
+			r.bot.Send(photoToSend)
+		}
 	}
 }
 

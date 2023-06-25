@@ -10,6 +10,7 @@ type Status int64
 
 const (
 	StatusAddTeamMembers Status = iota + 1
+	StatusSendReport
 )
 
 type User struct {
@@ -22,6 +23,7 @@ type User struct {
 
 type Cache interface {
 	SetTeamID(username string, teamID int64)
+	SetMatchID(username string, matchID int64)
 	SetStatus(username string, status Status)
 	GetStatus(username string) Status
 	SetUser(user User)
@@ -57,6 +59,16 @@ func (c *userCache) SetTeamID(username string, teamID int64) {
 		return
 	}
 	u.TeamID = teamID
+	c.cache.Set(c.prefix+username, u, 0)
+}
+
+func (c *userCache) SetMatchID(username string, matchID int64) {
+	u, ok := c.GetUser(username)
+	if !ok {
+		c.cache.Set(c.prefix+username, &User{MatchID: matchID}, 0)
+		return
+	}
+	u.MatchID = matchID
 	c.cache.Set(c.prefix+username, u, 0)
 }
 
