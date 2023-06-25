@@ -23,7 +23,7 @@ func New() Service {
 
 func (s *service) GetPayments(beginDate, endDate string) ([]kaspi.PaymentDetails, error) {
 	bank := kaspi.NewKaspiDevice()
-	ticket, err := bank.SignIn("username", "password")
+	ticket, err := bank.SignIn(username, password)
 	if err != nil {
 		return nil, err
 	}
@@ -53,18 +53,18 @@ func (s *service) GetPaymentsByMatchID(beginDate, endDate string, matchId string
 }
 
 func (s *service) GetUserPayment(beginDate, endDate string, userID, matchID string) (*kaspi.PaymentDetails, error) {
-	fund := kaspi.NewKaspiDevice()
-	ticket, err := fund.SignIn(username, password)
+	bank := kaspi.NewKaspiDevice()
+	ticket, err := bank.SignIn(username, password)
 	if err != nil {
 		return nil, err
 	}
 
-	payments, err := fund.Payments(beginDate, endDate, ticket)
+	payments, err := bank.Payments(beginDate, endDate, ticket)
 	if err != nil {
 		return nil, err
 	}
 
-	matchPayments := fund.MatchParticipantPayment(matchID, userID, payments)
+	matchPayments := bank.MatchParticipantPayment(matchID, userID, payments)
 
 	return matchPayments, nil
 
