@@ -1,26 +1,32 @@
 package main
 
+import (
+	"fmt"
+
+	"github.com/complexusprada/kaspi_perevod/kaspi"
+)
+
 // "fmt"
 
 // "github.com/complexusprada/kaspi_perevod/kaspi"
 
 func main() {
-	// device := kaspi.NewKaspiDevice()
-	// ticket, err := device.SignIn("username", "password")
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return
-	// }
-	//
- //  
-	// transaction := kaspi.NewTransaction(ticket, "7475849384", 100)
- //  err  = transaction.Make()
- //  if err != nil {
-	// 	fmt.Println(err)
- //    return
- //  }
-	//
- //  fmt.Println("success ")
+	device := kaspi.NewKaspiDevice()
+	ticket, err := device.SignIn("username", "password")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+  
+	transaction := kaspi.NewTransaction(ticket, "7475849384", 100)
+  err  = transaction.Make()
+  if err != nil {
+		fmt.Println(err)
+    return
+  }
+
+  fmt.Println("success")
 
 	// fmt.Println(fio)
 

@@ -112,7 +112,7 @@ func (t Transaction) process(id transferId) (bool, error) {
 
 func (t Transaction) register(targetFio string) transferId {
 	body := []byte(fmt.Sprintf(`{
-  {
+  
   "sourceAccount": {
     "productId": "%v",
     "type": "own-kaspi-gold",
@@ -128,7 +128,7 @@ func (t Transaction) register(targetFio string) transferId {
   "feeAmount": 0,
   "requisiteInputMethod": "manual-phone",
   "requestParams": {}
-} }`, sourceAccount, t.PhoneNumber, targetFio, t.Amount))
+} `, sourceAccount, t.PhoneNumber, targetFio, t.Amount))
 
 	url := fmt.Sprintf("https://transfers.kaspi.kz/api/kaspi-client/register")
 
@@ -139,6 +139,9 @@ func (t Transaction) register(targetFio string) transferId {
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-token", *t.Ticket)
+
+  dumpReq, _ := httputil.DumpRequest(req, true)
+  fmt.Println(string(dumpReq))
 
 
 	res, err := http.DefaultClient.Do(req)
