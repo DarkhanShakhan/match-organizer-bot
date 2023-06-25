@@ -176,15 +176,20 @@ func (r *router) handleCallback(callback *tgbotapi.CallbackQuery) {
 		r.bot.Send(msg)
 	case "signout_match":
 		matchID, _ := strconv.Atoi(callbacks[1])
+		match, _ := r.service.GetMatchByMatchID(context.TODO(), int64(matchID))
+		organizer, _ := r.service.GetUserByUsername(context.Background(), match.OrganizerUsername)
 		user, _ := r.service.GetUserByUsername(context.Background(), callback.From.UserName)
 		r.service.SignOutMatch(context.Background(), int64(matchID), user.ID)
 		msg := tgbotapi.NewMessage(callback.From.ID, "Вы отменили участие в матче")
-		//TODO: notify organizer
 		msg.ReplyMarkup = matchMoreKeyboard(int64(matchID))
+		r.bot.Send(msg)
+		msg = tgbotapi.NewMessage(int64(organizer.ChatID), fmt.Sprintf("@%s отменил участие в матче %d", user.Username, matchID))
+		msg.ReplyMarkup = matchMoreKeyboard(match.ID)
 		r.bot.Send(msg)
 	case "signup_match":
 		matchID, _ := strconv.Atoi(callbacks[1])
 		match, _ := r.service.GetMatchByMatchID(context.Background(), int64(matchID))
+		organizer, _ := r.service.GetUserByUsername(context.Background(), match.OrganizerUsername)
 		teamID := 0
 		min := match.TeamSize
 		for _, team := range match.Teams {
@@ -197,7 +202,8 @@ func (r *router) handleCallback(callback *tgbotapi.CallbackQuery) {
 		r.service.SignUpToMatch(context.Background(), user.ID, int64(teamID))
 		msg := tgbotapi.NewMessage(callback.From.ID, "Вы записались на матч")
 		msg.ReplyMarkup = matchMoreKeyboard(match.ID)
-		//TODO: notify organizer
+		msg = tgbotapi.NewMessage(int64(organizer.ChatID), fmt.Sprintf("@%s отменил участие в матче %d", user.Username, matchID))
+
 		r.bot.Send(msg)
 	}
 }
