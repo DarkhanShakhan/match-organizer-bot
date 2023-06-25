@@ -73,6 +73,21 @@ func (r *router) handleCallback(callback *tgbotapi.CallbackQuery) {
 		msg.ReplyMarkup = matchTeamsKeyboard(match.Teams)
 		r.bot.Send(msg)
 	case "cancel_match":
+		matchID, _ := strconv.Atoi(callbacks[1])
+		match, err := r.service.GetMatchByMatchID(context.Background(), int64(matchID))
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		r.service.CancelMatch(context.Background(), int64(matchID))
+		r.bot.Send(tgbotapi.NewMessage(callback.From.ID, "Вы отменили матч"))
+		for _, team := range match.Teams {
+			for _, member := range team.Members {
+				//TODO: return fees to paid members
+				r.bot.Send(tgbotapi.NewMessage(int64(member.ChatID), fmt.Sprintf("Матч #%d отменен", matchID)))
+			}
+		}
+
 	case "add_team_members":
 		teamID, _ := strconv.Atoi(callbacks[1])
 		r.userCache.SetTeamID(callback.From.UserName, int64(teamID))
@@ -80,7 +95,129 @@ func (r *router) handleCallback(callback *tgbotapi.CallbackQuery) {
 		msg := tgbotapi.NewMessage(callback.From.ID, `Отправьте юзернеймы тех, кого хотите добавить, 
 		через пробел и с "@" в начале`)
 		r.bot.Send(msg)
+	case "get_matches_by_sport":
+		matches, err := r.service.GetOpenMatchesBySport(context.Background(), enum.SportType(callbacks[1]))
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		r.bot.Send(tgbotapi.NewMessage(callback.From.ID, fmt.Sprintf(`🔜 Ближайшие матчи по %sу
+
+		`, callbacks[1])))
+		if len(matches) == 0 {
+			r.bot.Send(tgbotapi.NewMessage(callback.From.ID, `😥 К сожалению, матчей нет`))
+			return
+		}
+		for _, m := range matches {
+			msg := tgbotapi.NewMessage(callback.From.ID,
+				fmt.Sprintf(`Матч #%d - Начало %d/%d %d:00(%.1f часа) - %d тг/чел - Осталось %d мест`,
+					m.ID, m.StartAt.Day(), m.StartAt.Month(), m.StartAt.Hour(), float64(m.FinishAt.Sub(m.StartAt).Minutes())/60.0,
+					m.Rent/(m.TeamCount*m.TeamSize), (m.TeamCount*m.TeamSize)-m.MembersCount))
+			msg.ReplyMarkup = matchMoreKeyboard(m.ID)
+			r.bot.Send(msg)
+		}
+	case "get_match_by_id":
+		matchID, _ := strconv.Atoi(callbacks[1])
+		match, err := r.service.GetMatchByMatchID(context.Background(), int64(matchID))
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		msg := tgbotapi.NewMessage(callback.From.ID,
+			fmt.Sprint(match),
+		)
+		rows := []tgbotapi.InlineKeyboardButton{}
+		if match.OrganizerUsername == callback.From.UserName {
+			rows = append(rows, tgbotapi.NewInlineKeyboardButtonData(
+				"Отменить матч",
+				fmt.Sprintf("cancel_match-%d", matchID)))
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardButtonData(
+			"Записаться на матч",
+			fmt.Sprintf("signup_match-%d", matchID)),
+		)
+		for _, team := range match.Teams {
+			for _, member := range team.Members {
+				if callback.From.UserName == member.Username {
+					rows = append(rows[:len(rows)-1],
+						tgbotapi.NewInlineKeyboardButtonData("Отменить участие", fmt.Sprintf("signout_match-%d", matchID)),
+					)
+					if !member.Confirmed {
+						rows = append(rows, tgbotapi.NewInlineKeyboardButtonData(
+							"Подтвердить участие", fmt.Sprintf("confirm_match-%d", matchID),
+						))
+					}
+					if !member.Paid {
+						rows = append(rows, tgbotapi.NewInlineKeyboardButtonData(
+							"Оплатить взнос", fmt.Sprintf("pay_match-%d", matchID),
+						))
+					}
+					break
+				}
+
+			}
+
+		}
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows)
+		r.bot.Send(msg)
+	case "pay_match":
+	case "confirm_match":
+		matchID, _ := strconv.Atoi(callbacks[1])
+		match, _ := r.service.GetMatchByMatchID(context.TODO(), int64(matchID))
+		organizer, _ := r.service.GetUserByUsername(context.Background(), match.OrganizerUsername)
+		user, _ := r.service.GetUserByUsername(context.Background(), callback.From.UserName)
+		r.service.SetMatchConfirmed(context.Background(), true, user.ID, int64(matchID))
+		//TODO: notify organizer
+		msg := tgbotapi.NewMessage(callback.From.ID, "Вы подтвердили участие в матче")
+		msg.ReplyMarkup = matchMoreKeyboard(int64(matchID))
+		r.bot.Send(msg)
+		msg = tgbotapi.NewMessage(int64(organizer.ChatID), fmt.Sprintf("@%s подтвердил участие в матче %d", user.Username, matchID))
+		msg.ReplyMarkup = matchMoreKeyboard(match.ID)
+		r.bot.Send(msg)
+	case "signout_match":
+		matchID, _ := strconv.Atoi(callbacks[1])
+		user, _ := r.service.GetUserByUsername(context.Background(), callback.From.UserName)
+		r.service.SignOutMatch(context.Background(), int64(matchID), user.ID)
+		msg := tgbotapi.NewMessage(callback.From.ID, "Вы отменили участие в матче")
+		//TODO: notify organizer
+		msg.ReplyMarkup = matchMoreKeyboard(int64(matchID))
+		r.bot.Send(msg)
+	case "signup_match":
+		matchID, _ := strconv.Atoi(callbacks[1])
+		match, _ := r.service.GetMatchByMatchID(context.Background(), int64(matchID))
+		teamID := 0
+		min := match.TeamSize
+		for _, team := range match.Teams {
+			if len(team.Members) < int(min) {
+				teamID = int(team.ID)
+				min = int64(len(team.Members))
+			}
+		}
+		user, _ := r.service.GetUserByUsername(context.Background(), callback.From.UserName)
+		r.service.SignUpToMatch(context.Background(), user.ID, int64(teamID))
+		msg := tgbotapi.NewMessage(callback.From.ID, "Вы записались на матч")
+		msg.ReplyMarkup = matchMoreKeyboard(match.ID)
+		//TODO: notify organizer
+		r.bot.Send(msg)
 	}
+}
+
+// func matchSignUpKeyboard(matchID int64) tgbotapi.InlineKeyboardMarkup {
+// 	return tgbotapi.NewInlineKeyboardMarkup(
+// 		tgbotapi.NewInlineKeyboardRow(
+// 			tgbotapi.NewInlineKeyboardButtonData(
+// 				"Записаться на матч",
+// 				fmt.Sprintf("signup_match-%d", matchID)),
+// 		),
+// 	)
+// }
+
+func matchMoreKeyboard(matchID int64) tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Подробнее о матче", fmt.Sprintf("get_match_by_id-%d", matchID)),
+		),
+	)
 }
 
 func matchTeamsKeyboard(teams []*entity.Team) tgbotapi.InlineKeyboardMarkup {
@@ -231,10 +368,28 @@ func (r *router) addTeamMembers(msg *tgbotapi.Message) {
 	}
 	if err := r.service.AddTeamMembers(context.Background(), user.TeamID, members); err != nil {
 		log.Println(err)
+		return
+	}
+	matchID, err := r.service.GetMatchIDByTeamID(context.Background(), user.TeamID)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	match, err := r.service.GetMatchByMatchID(context.Background(), matchID)
+	if err != nil {
+		log.Println(err)
+		return
 	}
 	users := r.service.GetUsersByUsernames(context.Background(), members)
 	for _, user := range users {
 		r.bot.Send(tgbotapi.NewMessage(int64(user.ChatID), "Вас приглашают на матч"))
+		msgToSend := tgbotapi.NewMessage(int64(user.ChatID), fmt.Sprint(match))
+		msgToSend.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("Отменить участие", fmt.Sprintf("signout_match-%d", matchID)),
+				tgbotapi.NewInlineKeyboardButtonData("Подтвердить участие", fmt.Sprintf("confirm_match-%d", matchID)),
+			))
+		r.bot.Send(msgToSend)
 	}
 	r.userCache.SetStatus(user.Username, 0)
 	//TODO:respond successfully
@@ -248,8 +403,55 @@ func (r *router) handleCommand(msg *tgbotapi.Message) {
 		msgToSend := tgbotapi.NewMessage(msg.From.ID, "Выберите вид спорта")
 		msgToSend.ReplyMarkup = sportTypeKeyboard
 		r.bot.Send(msgToSend)
+	case "get_matches":
+		msgToSend := tgbotapi.NewMessage(msg.From.ID, "Выберите вид спорта")
+		msgToSend.ReplyMarkup = sportTypeCommandKeyboard
+		r.bot.Send(msgToSend)
+	case "my_matches":
+		user, _ := r.service.GetUserByUsername(context.Background(), msg.From.UserName)
+		matches, _ := r.service.GetMatchesByUserID(context.Background(), user.ID)
+		r.bot.Send(tgbotapi.NewMessage(msg.From.ID, `🔜 Ближайшие ваши матчи
+		`))
+		if len(matches) == 0 {
+			r.bot.Send(tgbotapi.NewMessage(msg.From.ID, `😥 К сожалению, матчей нет`))
+			return
+		}
+		for _, m := range matches {
+			msg := tgbotapi.NewMessage(msg.From.ID,
+				fmt.Sprintf(`Матч #%d - Начало %d/%d %d:00(%.1f часа) - %d тг/чел - Осталось %d мест`,
+					m.ID, m.StartAt.Day(), m.StartAt.Month(), m.StartAt.Hour(), float64(m.FinishAt.Sub(m.StartAt).Minutes())/60.0,
+					m.Rent/(m.TeamCount*m.TeamSize), (m.TeamCount*m.TeamSize)-m.MembersCount))
+			msg.ReplyMarkup = matchMoreKeyboard(m.ID)
+			r.bot.Send(msg)
+		}
+
+	case "organized_matches":
+		user, _ := r.service.GetUserByUsername(context.Background(), msg.From.UserName)
+		matches, _ := r.service.GetMatchesByUserID(context.Background(), user.ID)
+		r.bot.Send(tgbotapi.NewMessage(msg.From.ID, `🔜 Матчи организованные вами
+		`))
+		if len(matches) == 0 {
+			r.bot.Send(tgbotapi.NewMessage(msg.From.ID, `😥 К сожалению, матчей нет`))
+			return
+		}
+		for _, m := range matches {
+			msg := tgbotapi.NewMessage(msg.From.ID,
+				fmt.Sprintf(`Матч #%d - Начало %d/%d %d:00(%.1f часа) - %d тг/чел - Осталось %d мест`,
+					m.ID, m.StartAt.Day(), m.StartAt.Month(), m.StartAt.Hour(), float64(m.FinishAt.Sub(m.StartAt).Minutes())/60.0,
+					m.Rent/(m.TeamCount*m.TeamSize), (m.TeamCount*m.TeamSize)-m.MembersCount))
+			msg.ReplyMarkup = matchMoreKeyboard(m.ID)
+			r.bot.Send(msg)
+		}
 	}
 }
+
+var sportTypeCommandKeyboard = tgbotapi.NewInlineKeyboardMarkup(
+	tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("football", "get_matches_by_sport-football"),
+		tgbotapi.NewInlineKeyboardButtonData("volleyball", "get_matches_by_sport-volleyball"),
+		tgbotapi.NewInlineKeyboardButtonData("basketball", "get_matches_by_sport-basketball"),
+	),
+)
 
 var sportTypeKeyboard = tgbotapi.NewInlineKeyboardMarkup(
 	tgbotapi.NewInlineKeyboardRow(

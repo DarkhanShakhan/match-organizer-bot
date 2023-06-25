@@ -19,6 +19,7 @@ type Match struct {
 	TeamSize          int64     `db:"team_size"`
 	TeamCount         int64     `db:"team_count"`
 	IsPrivate         bool      `db:"private"`
+	MembersCount      int64     `db:"members_count"`
 	Teams             []*Team
 }
 
@@ -30,14 +31,25 @@ type Team struct {
 }
 
 type User struct {
-	ID       int64  `db:"id"`
-	Name     string `db:"name"`
-	Username string `db:"username"`
-	ChatID   int    `db:"chat_id"`
+	ID        int64  `db:"id"`
+	Name      string `db:"name"`
+	Username  string `db:"username"`
+	ChatID    int    `db:"chat_id"`
+	Confirmed bool   `db:"confirmed"`
+	Paid      bool   `db:"paid"`
+	Cancelled bool   `db:"cancelled"`
 }
 
 func (u *User) String() string {
-	return ""
+	out := "@" + u.Username
+	sign := "⚪️"
+	if u.Confirmed {
+		sign = "🟡"
+	}
+	if u.Paid {
+		sign = "🟢"
+	}
+	return sign + " " + out + " "
 }
 
 func (m *Match) String() string {
@@ -56,6 +68,7 @@ func (m *Match) String() string {
 		m.TeamSize, m.TeamSize, m.TeamCount,
 	)
 	for _, team := range m.Teams {
+		team.Size = m.TeamSize
 		out += team.String()
 	}
 	out += fmt.Sprintf(`
